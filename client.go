@@ -58,43 +58,60 @@ type Client struct {
 	admin bool
 }
 
+// Handle new playback sessions starting
+func handleNewSessionCommand(c *Client, command string) {
+	parts := strings.Split(command, " ")
+	if len(parts) != 3 {
+		// Command didn't follow syntax of NEW <media> <user>
+		log.Print("Invalid new command " + command)
+	}
+
+	c.media = parts[1]
+	log.Printf("Set media to %s for client %s", c.media, c.conn.RemoteAddr())
+
+	i, err := strconv.Atoi(parts[2])
+	if err != nil {
+		log.Print("Unable to decode user id ", parts[2])
+	} else {
+		c.user = i
+		log.Printf("Set user to %d for client %s", c.user, c.conn.RemoteAddr())
+	}
+}
+
+// Update position for clients
+func handlePosUpdateCommand(c *Client, command string) {
+	p := command[4:]
+	i, err := strconv.Atoi(p)
+	if err != nil {
+		log.Print("Unable to decode position ", p)
+	} else {
+		c.pos = i
+		log.Printf("Set position to %d for client %s", c.pos, c.conn.RemoteAddr())
+	}
+}
+
+// Set status to admin if pw is correct
+func handleAdminCommand(c *Client, command string) {
+	pw := command[6:]
+	if pw == adminpw {
+		c.admin = true
+		log.Print("Client ", c.conn.RemoteAddr(), " marked as admin")
+		c.send <- []byte("ADMIN OK")
+	} else {
+		log.Print(" --- WARNING --- WRONG ADMIN PW FROM ", c.conn.RemoteAddr())
+	}
+}
+
+// Parse received websocket messages
 func handleMessage(c *Client, message []byte) {
 	s := string(message[:])
 
 	if strings.HasPrefix(s, "NEW") {
-		parts := strings.Split(s, " ")
-		if len(parts) != 3 {
-			log.Print("Invalid new command " + s)
-		}
-
-		c.media = parts[1]
-		log.Printf("Set media to %s for client %s", c.media, c.conn.RemoteAddr())
-
-		i, err := strconv.Atoi(parts[2])
-		if err != nil {
-			log.Print("Unable to decode user id ", parts[2])
-		} else {
-			c.user = i
-			log.Printf("Set user to %d for client %s", c.user, c.conn.RemoteAddr())
-		}
+		handleNewSessionCommand(c, s)
 	} else if strings.HasPrefix(s, "POS") {
-		p := s[4:len(s)]
-		i, err := strconv.Atoi(p)
-		if err != nil {
-			log.Print("Unable to decode position ", p)
-		} else {
-			c.pos = i
-			log.Printf("Set position to %d for client %s", c.pos, c.conn.RemoteAddr())
-		}
+		handlePosUpdateCommand(c, s)
 	} else if strings.HasPrefix(s, "ADMIN") {
-		pw := s[6:len(s)]
-		if pw == adminpw {
-			c.admin = true
-			log.Print("Client ", c.conn.RemoteAddr(), " marked as admin")
-			c.send <- []byte("ADMIN OK")
-		} else {
-			log.Print(" --- WARNING --- WRONG ADMIN PW FROM ", c.conn.RemoteAddr())
-		}
+		handleAdminCommand(c, s)
 	} else if strings.HasPrefix(s, "STATUS") && c.admin {
 		log.Print("Admin ", c.conn.RemoteAddr(), " asked for status")
 		c.hub.status <- true
